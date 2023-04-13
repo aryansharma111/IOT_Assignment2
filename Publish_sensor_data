@@ -1,74 +1,85 @@
-import random
-import ssl
-import time
-import datetime
-import jwt
-import paho.mqtt.client as mqtt
 
-# Google IoT Core configuration
-PROJECT_ID = ' groovy-smithy-382817 '
-CLOUD_REGION = 'us-central1'
-REGISTRY_IDS = ['Tempperature', 'Humidity', 'Co2sensor', 'RainHeight', 'WindDirection', 'WindIntensity']
-DEVICE_ID = 'Sensordata'
-PRIVATE_KEY_ID = 'ae2367714b6401b7d32fe29ece2eb06dd4cc4085'
-ALGORITHM = 'ES256'
 
-# MQTT configuration
-MQTT_BRIDGE_HOSTNAME = 'mqtt.googleapis.com'
-MQTT_BRIDGE_PORT = 8883
+# Library import
+import paho.mqtt.client as paho  # Import of paho-mqtt library
+import time  # Import of time library
+import random as rnd  # Import of random library
 
-# Define the connection callback
-def on_connect(client, userdata, flags, rc):
-    print('Connected with result code ' + str(rc))
-    for registry_id in REGISTRY_IDS:
-        mqtt_topic = '/devices/{}/events'.format(registry_id + '/' + DEVICE_ID)
-        client.subscribe(mqtt_topic)
+# Get_value function definitions
 
-# Define the message callback
-def on_message(client, userdata, msg):
-    print(msg.topic + ' ' + str(msg.payload))
 
-# Generate JWT token
-def create_jwt(project_id, private_key_file, algorithm):
-    token = {
-        'iat': datetime.datetime.utcnow(),
-        'exp': datetime.datetime.utcnow() + datetime.timedelta(minutes=60),
-        'aud': project_id
-    }
-    with open(private_key_file, 'r') as f:
-        private_key = f.read()
-    return jwt.encode(token, private_key, algorithm=algorithm)
+def on_publish(client, userdata, result):  # Callback Function
+    print("data published to thingsboard \n")
+    pass
 
-# Create MQTT clients
-clients = []
-for registry_id in REGISTRY_IDS:
-    mqtt_client = mqtt.Client(client_id='projects/{}/locations/{}/registries/{}/devices/{}'.format(PROJECT_ID, CLOUD_REGION, registry_id, DEVICE_ID))
-    mqtt_client.username_pw_set(username='unused', password=create_jwt(PROJECT_ID, PRIVATE_KEY_ID, ALGORITHM))
-    mqtt_client.tls_set(ca_certs='roots.pem', certfile=None, keyfile=None, cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLSv1_2, ciphers=None)
-    mqtt_client.on_connect = on_connect
-    mqtt_client.on_message = on_message
-    clients.append(mqtt_client)
 
-# Connect to MQTT brokers
-for mqtt_client in clients:
-    mqtt_client.connect(MQTT_BRIDGE_HOSTNAME, MQTT_BRIDGE_PORT)
+def get_temperature():  # Generate a random temperature
+    return '%.2f' % rnd.uniform(-50, 50) + " Celsius"
 
-# Start MQTT loops
-for mqtt_client in clients:
-    mqtt_client.loop_start()
 
-# Publish sensor data
+def get_humidity():  # Generate a random humidity
+    return '%.2f' % rnd.uniform(0, 100) + "%"
+
+
+def get_wind_direction():  # Generate a random wind direction
+    return str(rnd.randrange(0, 360)) + " degrees"
+
+
+def get_wind_intensity():  # Generate a random wind intesity
+    return str(rnd.randrange(0, 100)) + " m/s"
+
+
+def get_rain_height():  # Generate a random rain height
+    return str(rnd.randrange(0, 50)) + " mm/h"
+
+
+def get_payload():  # Generate the payload to send
+    payload = '{"Temperature":"'
+    payload += get_temperature()
+    payload += '", "Humidity":"'
+    payload += get_humidity()
+    payload += '", "Wind direction":"'
+    payload += get_wind_direction()
+    payload += '", "Wind intensity":"'
+    payload += get_wind_intensity()
+    payload += '", "Rain height":"'
+    payload += get_rain_height()
+    payload += '"}'
+    return payload
+
+
+# MQTT client definition
+# AccessToken of Virtual Environment Station 1 in ThingsBoard
+ACCESS_TOKEN1 = 'bnCN93aWkuzG9rKCO0rb'
+# AccessToken of Virtual Environment Station 2 in ThingsBoard
+ACCESS_TOKEN2 = 'uAHrIMNTg74vWsZU5nLn'
+
+broker = "demo.thingsboard.io"  # Host Name
+port = 1883  # Data Listening port
+
+client1 = paho.Client("control1")  # Create client1 object
+client1.on_publish = on_publish  # Assign function to callback of client1
+# Assign to client1 the access token of  Virtual Environment Station 1 in ThingsBoard
+client1.username_pw_set(ACCESS_TOKEN1)
+# Establish connection using the func connect from the class client
+client1.connect(broker, port, keepalive=60)
+
+client2 = paho.Client("control1")  # Create client2 object
+client2.on_publish = on_publish  # Assign function to callback of client2
+# Assaign to client2 the access token of  Virtual Environment Station 2 in ThingsBoard
+client2.username_pw_set(ACCESS_TOKEN2)
+# Establish connection using the func connect from the class client
+client2.connect(broker, port, keepalive=60)
+
+# Sending data
 while True:
-    for registry_id, mqtt_client in zip(REGISTRY_IDS, clients):
-        temperature = random.uniform(-50, 50)
-        humidity = random.uniform(0, 100)
-        co2 = random.uniform(300, 2000)
-        rain = random.uniform(0, 50)
-        wind_direction = random.uniform(0, 360)
-        wind_intensity = random.uniform(0, 100)
-
-        payload = '{{"temperature":{:.2f},"humidity":{:.2f},"co2":{:.2f},"rain":{:.2f},"wind_direction":{:.2f},"wind_intensity":{:.2f}}}'.format(temperature, humidity, co2, rain, wind_direction, wind_intensity)
-        mqtt_topic = '/devices/{}/events'.format(registry_id + '/' + DEVICE_ID)
-        mqtt_client.publish(mqtt_topic, payload, qos=1)
-        print('Published to {}: {}'.format(mqtt_topic, payload))
-
+    payload1 = get_payload()  # Get a new payload1
+    payload2 = get_payload()  # Get a new peyload2
+    # Send the payload 1 to client1 topic
+    ret = client1.publish("v1/devices/me/telemetry", payload1)
+    # Send the payload 2 to client2 topic
+    ret = client2.publish("v1/devices/me/telemetry", payload2)
+    print("Please check LATEST TELEMETRY field of your devices")
+    print(payload1)
+    print(payload2)
+    time.sleep(5)  # Wait 5 second to resend another payload to the devices
