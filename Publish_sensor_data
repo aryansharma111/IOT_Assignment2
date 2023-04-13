@@ -1,0 +1,74 @@
+import random
+import ssl
+import time
+import datetime
+import jwt
+import paho.mqtt.client as mqtt
+
+# Google IoT Core configuration
+PROJECT_ID = ' groovy-smithy-382817 '
+CLOUD_REGION = 'us-central1'
+REGISTRY_IDS = ['Tempperature', 'Humidity', 'Co2sensor', 'RainHeight', 'WindDirection', 'WindIntensity']
+DEVICE_ID = 'Sensordata'
+PRIVATE_KEY_ID = 'ae2367714b6401b7d32fe29ece2eb06dd4cc4085'
+ALGORITHM = 'ES256'
+
+# MQTT configuration
+MQTT_BRIDGE_HOSTNAME = 'mqtt.googleapis.com'
+MQTT_BRIDGE_PORT = 8883
+
+# Define the connection callback
+def on_connect(client, userdata, flags, rc):
+    print('Connected with result code ' + str(rc))
+    for registry_id in REGISTRY_IDS:
+        mqtt_topic = '/devices/{}/events'.format(registry_id + '/' + DEVICE_ID)
+        client.subscribe(mqtt_topic)
+
+# Define the message callback
+def on_message(client, userdata, msg):
+    print(msg.topic + ' ' + str(msg.payload))
+
+# Generate JWT token
+def create_jwt(project_id, private_key_file, algorithm):
+    token = {
+        'iat': datetime.datetime.utcnow(),
+        'exp': datetime.datetime.utcnow() + datetime.timedelta(minutes=60),
+        'aud': project_id
+    }
+    with open(private_key_file, 'r') as f:
+        private_key = f.read()
+    return jwt.encode(token, private_key, algorithm=algorithm)
+
+# Create MQTT clients
+clients = []
+for registry_id in REGISTRY_IDS:
+    mqtt_client = mqtt.Client(client_id='projects/{}/locations/{}/registries/{}/devices/{}'.format(PROJECT_ID, CLOUD_REGION, registry_id, DEVICE_ID))
+    mqtt_client.username_pw_set(username='unused', password=create_jwt(PROJECT_ID, PRIVATE_KEY_ID, ALGORITHM))
+    mqtt_client.tls_set(ca_certs='roots.pem', certfile=None, keyfile=None, cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLSv1_2, ciphers=None)
+    mqtt_client.on_connect = on_connect
+    mqtt_client.on_message = on_message
+    clients.append(mqtt_client)
+
+# Connect to MQTT brokers
+for mqtt_client in clients:
+    mqtt_client.connect(MQTT_BRIDGE_HOSTNAME, MQTT_BRIDGE_PORT)
+
+# Start MQTT loops
+for mqtt_client in clients:
+    mqtt_client.loop_start()
+
+# Publish sensor data
+while True:
+    for registry_id, mqtt_client in zip(REGISTRY_IDS, clients):
+        temperature = random.uniform(-50, 50)
+        humidity = random.uniform(0, 100)
+        co2 = random.uniform(300, 2000)
+        rain = random.uniform(0, 50)
+        wind_direction = random.uniform(0, 360)
+        wind_intensity = random.uniform(0, 100)
+
+        payload = '{{"temperature":{:.2f},"humidity":{:.2f},"co2":{:.2f},"rain":{:.2f},"wind_direction":{:.2f},"wind_intensity":{:.2f}}}'.format(temperature, humidity, co2, rain, wind_direction, wind_intensity)
+        mqtt_topic = '/devices/{}/events'.format(registry_id + '/' + DEVICE_ID)
+        mqtt_client.publish(mqtt_topic, payload, qos=1)
+        print('Published to {}: {}'.format(mqtt_topic, payload))
+
